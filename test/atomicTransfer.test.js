@@ -10,14 +10,19 @@ const htsTokens = require("../utils/tokenOperations.js");
 
 // ABIs
 // For HBAR allowances via IHRC-632
-const IHRC632ABI = require("../hedera-smart-contracts/contracts-abi/contracts/system-contracts/hedera-account-service/IHRC632.sol/IHRC632.json");
+const IHRC632ABI_JSON = require("../hedera-smart-contracts/contracts-abi/contracts/system-contracts/hedera-account-service/IHRC632.sol/IHRC632.json");
+const IHRC632ABI = new ethers.Interface(IHRC632ABI_JSON);
 // For HTS token allowances via ERC interfaces
-const ERC20MockABI = require("../hedera-smart-contracts/contracts-abi/contracts/hip-583/ERC20Mock.sol/ERC20Mock.json");
-const ERC721MockABI = require("../hedera-smart-contracts/contracts-abi/contracts/hip-583/ERC721Mock.sol/ERC721Mock.json");
+const ERC20MockABI_JSON = require("../hedera-smart-contracts/contracts-abi/contracts/hip-583/ERC20Mock.sol/ERC20Mock.json");
+const ERC20MockABI = new ethers.Interface(ERC20MockABI_JSON);
+const ERC721MockABI_JSON = require("../hedera-smart-contracts/contracts-abi/contracts/hip-583/ERC721Mock.sol/ERC721Mock.json");
+const ERC721MockABI = new ethers.Interface(ERC721MockABI_JSON);
 // For HTS token associations via IHRC-719
-const IHRC719ABI = require("../hedera-smart-contracts/contracts-abi/contracts/system-contracts/hedera-token-service/IHRC719.sol/IHRC719.json");
+const IHRC719ABI_JSON = require("../hedera-smart-contracts/contracts-abi/contracts/system-contracts/hedera-token-service/IHRC719.sol/IHRC719.json");
+const IHRC719ABI = new ethers.Interface(IHRC719ABI_JSON);
 // For HTS atomic cryptoTransfer operation
-const IHederaTokenServiceABI = require("../hedera-smart-contracts/contracts-abi/contracts/system-contracts/hedera-token-service/IHederaTokenService.sol/IHederaTokenService.json");
+const IHederaTokenServiceABI_JSON = require("../hedera-smart-contracts/contracts-abi/contracts/system-contracts/hedera-token-service/IHederaTokenService.sol/IHederaTokenService.json");
+const IHederaTokenServiceABI = new ethers.Interface(IHederaTokenServiceABI_JSON);
 
 describe("HBAR Allowances and Atomic Transfers", function () {
 	// Set up the network and signers
@@ -70,8 +75,7 @@ describe("HBAR Allowances and Atomic Transfers", function () {
 	});
 
 	it("Should approve Alice to spend HBAR on behalf of Treasury", async function () {
-		const IHRC632 = new ethers.Interface(IHRC632ABI);
-		const treasuryIHRC632 = new ethers.Contract(treasurySigner.address, IHRC632, treasurySigner);
+		const treasuryIHRC632 = await ethers.getContractAt(IHRC632ABI, treasurySigner.address, treasurySigner);
 
 		const hbarApprovalTx = await treasuryIHRC632.hbarApprove(aliceSigner.address, hbarAmount.toTinybars().toString(), { gasLimit: gasLimit });
 		const hbarApprovalRx = await hbarApprovalTx.wait();
@@ -83,40 +87,41 @@ describe("HBAR Allowances and Atomic Transfers", function () {
 	});
 
 	it("Should approve Alice to spend FT on behalf of Treasury", async function () {
-		const IERC20 = await ethers.getContractAt(ERC20MockABI, ftTokenAddress);
+		const treasuryIERC20 = await ethers.getContractAt(ERC20MockABI, ftTokenAddress, treasurySigner);
 
-		const aliceAllowanceBefore = await IERC20.allowance(treasurySigner.address, aliceSigner.address);
+		const aliceAllowanceBefore = await treasuryIERC20.allowance(treasurySigner.address, aliceSigner.address);
 
-		const ftApprovalTx = await IERC20.approve(aliceSigner.address, ftAmount, { gasLimit: gasLimit });
+		const ftApprovalTx = await treasuryIERC20.approve(aliceSigner.address, ftAmount, { gasLimit: gasLimit });
 		const ftApprovalRx = await ftApprovalTx.wait();
 		const txHash = ftApprovalRx.hash;
 		console.log(`\n- Hash for fungible token approval transaction: \n${txHash}`);
 
-		const aliceAllowanceAfter = await IERC20.allowance(treasurySigner.address, aliceSigner.address);
+		const aliceAllowanceAfter = await treasuryIERC20.allowance(treasurySigner.address, aliceSigner.address);
 
 		expect(aliceAllowanceBefore).to.eq(0);
 		expect(aliceAllowanceAfter).to.eq(ftAmount);
 	});
 
 	it("Should approve Alice to spend NFT on behalf of Treasury", async function () {
-		const IERC721 = await ethers.getContractAt(ERC721MockABI, nftTokenAddress);
+		const treasuryIERC721 = await ethers.getContractAt(ERC721MockABI, nftTokenAddress, treasurySigner);
 
-		const aliceAllowanceBefore = await IERC721.getApproved(nftSerialToSpend);
+		const aliceAllowanceBefore = await treasuryIERC721.getApproved(nftSerialToSpend);
 
-		const nftApprovalTx = await IERC721.approve(aliceSigner.address, nftSerialToSpend, { gasLimit: gasLimit });
+		const nftApprovalTx = await treasuryIERC721.approve(aliceSigner.address, nftSerialToSpend, { gasLimit: gasLimit });
 		const nftApprovalRx = await nftApprovalTx.wait();
 		const txHash = nftApprovalRx.hash;
 		console.log(`\n- Hash for NFT approval transaction: \n${txHash}`);
 
-		const aliceAllowanceAfter = await IERC721.getApproved(nftSerialToSpend);
+		const aliceAllowanceAfter = await treasuryIERC721.getApproved(nftSerialToSpend);
 
 		expect(aliceAllowanceBefore).to.eq("0x0000000000000000000000000000000000000000");
 		expect(aliceAllowanceAfter).to.eq(aliceSigner.address);
 	});
 
 	it("Should associate the fungible token with Bob", async function () {
-		const myFungibleToken = new ethers.Contract(ftTokenAddress, IHRC719ABI, bobSigner);
-		const associateTx = await myFungibleToken.associate({ gasLimit: gasLimit });
+		const bobFtAssociation = await ethers.getContractAt(IHRC719ABI, ftTokenAddress, bobSigner);
+
+		const associateTx = await bobFtAssociation.associate({ gasLimit: gasLimit });
 		const associateRx = await associateTx.wait();
 		const txHash = associateRx.hash;
 		console.log(`\n- Hash for Bob/FT association transaction: \n${txHash}`);
@@ -125,8 +130,9 @@ describe("HBAR Allowances and Atomic Transfers", function () {
 	});
 
 	it("Should associate the NFT with Bob", async function () {
-		const myNFT = new ethers.Contract(nftTokenAddress, IHRC719ABI, bobSigner);
-		const associateTx = await myNFT.associate({ gasLimit: gasLimit });
+		const bobNftAssociation = await ethers.getContractAt(IHRC719ABI, nftTokenAddress, bobSigner);
+
+		const associateTx = await bobNftAssociation.associate({ gasLimit: gasLimit });
 		const associateRx = await associateTx.wait();
 		const txHash = associateRx.hash;
 		console.log(`\n- Hash for Bob/NFT association transaction: \n${txHash}`);
@@ -186,8 +192,7 @@ describe("HBAR Allowances and Atomic Transfers", function () {
 		];
 
 		// Execute the atomic transfer
-		const IHederaTokenService = new ethers.Interface(IHederaTokenServiceABI);
-		const treasuryIHederaTokenService = new ethers.Contract(htsSystemContractAddress, IHederaTokenService, aliceSigner);
+		const treasuryIHederaTokenService = await ethers.getContractAt(IHederaTokenServiceABI, htsSystemContractAddress, aliceSigner);
 
 		const atomicTransferTx = await treasuryIHederaTokenService.cryptoTransfer(cryptoTransfers, tokenTransferList);
 		const atomicTransferRx = await atomicTransferTx.wait();
